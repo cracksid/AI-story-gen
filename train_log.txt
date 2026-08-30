@@ -1,0 +1,37 @@
+parameters     819,659
+context        64 characters
+steps          3000 at batch size 32
+learning rate  0.001
+
+  step    train      val     gap   elapsed
+     0   4.6074   4.5981  -0.009      0.0m
+   250   2.1887   2.2491  +0.060      0.9m
+   500   1.9041   1.9544  +0.050      1.9m
+   750   1.7565   1.8406  +0.084      3.0m
+  1000   1.6623   1.7320  +0.070      4.0m
+  1250   1.6047   1.6734  +0.069      5.0m
+  1500   1.5581   1.6298  +0.072      6.1m
+  1750   1.5417   1.6252  +0.083      7.1m
+  2000   1.4934   1.5880  +0.095      8.2m
+  2250   1.4799   1.5343  +0.054      9.4m
+  2500   1.4442   1.5825  +0.138     10.5m
+  2750   1.4268   1.5179  +0.091     11.6m
+  3000   1.4164   1.5172  +0.101     12.7m
+
+saved checkpoint.pt (3.6 MB, 819,659 parameters)
+
+=== SAMPLE FROM THE TRAINED MODEL ===
+
+--- fairytale ---
+
+The where he had seen said, 'Wat he went up in the with and bed the time, and said the door. 'Then I shall be a what indown for when he had meant not seen for the fing eyes, so what with his forest and when we soon reced. Restrucking her sured and seemed the bath, who she was geners done. 'Prove but
+
+--- fable ---
+
+He seemed himself set robber his who can for the horse for into me; so go the by one remain the scover. A The Jorest the House of the Shork and the Lion
+
+A SOWLE MAN this sing of a Wolf their to you, so can put in the forest, and who wall no be when every door to the sleep in the Craw his bitters, w
+
+--- mystery ---
+
+"I she spokly showly. There is posing a good passation of the strength's horn heart of the forest flock and deman. St. Holmes, the drank, he and of it would Mr. St. After Sherlock Some of the money bear of the shore a which predic in the phelpess of a daugh: "the kind pool stream was in the dispropp
