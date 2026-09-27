@@ -634,6 +634,28 @@ is now closed.
 
 ---
 
+## Note on the web interface
+
+`app.py` and `web/index.html` are a demonstration layer, not part of the
+assignment: they answer none of the six questions and are excluded from the
+line budget discussed above (932 lines of model code; 582 lines of interface).
+
+Two things about it are worth recording because they touch the model:
+
+- `GPT.generate` was split into a generator, `GPT.stream`, which yields one
+  sampled id and its probability distribution at a time, with `generate`
+  reduced to collecting from it. One sampling implementation, consumed two
+  ways - duplicating the loop into the server would have let the two drift.
+- The browser draws the top six candidate characters and their probabilities
+  at every step. This makes the temperature mechanism directly observable
+  rather than only measurable: at temperature 0.8 the leading candidate is
+  frequently above 99%, and at 1.5 the same position shows 24.6 / 12.1 / 9.8 /
+  8.5 / 8.0 / 6.5 - the softmax flattening, live. It is the same quantity
+  reported as perplexity 4.58, seen per character instead of averaged.
+
+The server uses `http.server` from the standard library rather than a web
+framework, so the dependency list is unchanged.
+
 ## Environment
 
 | Item | Value | Note |

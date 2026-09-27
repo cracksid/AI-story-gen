@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story GPT</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Colours are CSS custom properties so the whole page can be re-themed by
+   changing three values when the genre changes, instead of touching every
+   rule. The transition on :root makes that re-theme a two-second fade.
+   --------------------------------------------------------------------------- */
+:root{
+  --bg:#07070c; --panel:#0e0e18; --line:#1e1e30;
+  --text:#e8e8f4; --dim:#7a7a96;
+  --accent:#7cc4ff; --accent2:#c9a0ff; --accent3:#4de0c0;
+  --heat:0;                         /* 0..1, driven by the temperature slider */
+  transition:--accent 1.2s, --accent2 1.2s, --accent3 1.2s;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font:15px/1.65 ui-monospace,"Cascadia Code",Consolas,monospace;
+  overflow-x:hidden;
+}
+
+/* --- the living background ------------------------------------------------
+   Two layers: a canvas particle field (drawn in JS) and these two blurred
+   colour blobs drifting behind everything. Both sit at z-index 0 with the
+   content above, so nothing here can intercept a click.
+   -------------------------------------------------------------------------- */
+#field{position:fixed;inset:0;z-index:0;opacity:.55}
+.aurora{position:fixed;border-radius:50%;filter:blur(90px);z-index:0;
+  opacity:.30;pointer-events:none;transition:background 1.2s}
+.aurora.a{width:52vw;height:52vw;left:-12vw;top:-16vw;
+  background:var(--accent);animation:drift1 26s ease-in-out infinite}
+.aurora.b{width:44vw;height:44vw;right:-10vw;bottom:-14vw;
+  background:var(--accent2);animation:drift2 32s ease-in-out infinite}
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}
+  50%{transform:translate(14vw,10vh) scale(1.18)}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1.1)}
+  50%{transform:translate(-12vw,-8vh) scale(.92)}}
+
+.wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:28px 16px 60px}
+
+/* --- header --------------------------------------------------------------- */
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+h1{
+  font-size:clamp(26px,5vw,40px);letter-spacing:-.02em;font-weight:700;
+  background:linear-gradient(92deg,var(--accent),var(--accent2),var(--accent3),var(--accent));
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;
+  color:transparent;animation:shift 9s linear infinite;position:relative;
+}
+@keyframes shift{to{background-position:300% 0}}
+/* The glitch: two copies of the text offset in red and cyan, revealed for a
+   few frames at a time by clip-path. Purely decorative. */
+h1::before,h1::after{
+  content:attr(data-text);position:absolute;left:0;top:0;
+  -webkit-background-clip:initial;background:none;opacity:.85;
+}
+h1::before{color:#ff4d6d;animation:gl1 4.5s infinite steps(1)}
+h1::after{color:#3ff0ff;animation:gl2 5.7s infinite steps(1)}
+@keyframes gl1{0%,96%{clip-path:inset(100% 0 0 0);transform:none}
+  97%{clip-path:inset(12% 0 62% 0);transform:translateX(-3px)}
+  98%{clip-path:inset(58% 0 22% 0);transform:translateX(3px)}
+  99%{clip-path:inset(30% 0 48% 0);transform:translateX(-2px)}}
+@keyframes gl2{0%,93%{clip-path:inset(100% 0 0 0);transform:none}
+  94%{clip-path:inset(70% 0 8% 0);transform:translateX(3px)}
+  95%{clip-path:inset(20% 0 55% 0);transform:translateX(-3px)}}
+.sub{color:var(--dim);font-size:12.5px}
+.sub b{color:var(--accent3);font-weight:600}
+
+/* --- controls -------------------------------------------------------------- */
+.panel{background:color-mix(in srgb,var(--panel) 82%,transparent);
+  border:1px solid var(--line);border-radius:14px;padding:16px;
+  backdrop-filter:blur(10px)}
+.controls{display:grid;gap:14px;margin-bottom:18px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{
+  position:relative;border:1px solid var(--line);background:transparent;
+  color:var(--dim);padding:8px 16px;border-radius:999px;cursor:pointer;
+  font:inherit;font-size:13px;overflow:hidden;transition:color .3s,border-color .3s;
+}
+/* The fill sweeps in from the left on hover and stays when selected. */
+.pill::before{content:"";position:absolute;inset:0;z-index:-1;
+  background:linear-gradient(95deg,var(--accent),var(--accent2));
+  transform:translateX(-101%);transition:transform .38s cubic-bezier(.22,1,.36,1)}
+.pill:hover{color:var(--text);border-color:var(--accent)}
+.pill[aria-pressed="true"]{color:#07070c;border-color:transparent;font-weight:600}
+.pill[aria-pressed="true"]::before{transform:none}
+
+input[type=text]{
+  flex:1;min-width:220px;background:#08080f;border:1px solid var(--line);
+  border-radius:10px;padding:11px 14px;color:var(--text);font:inherit;
+  transition:border-color .3s,box-shadow .3s}
+input[type=text]:focus{outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+
+input[type=range]{-webkit-appearance:none;appearance:none;height:5px;flex:1;
+  min-width:140px;border-radius:99px;background:linear-gradient(90deg,
+    var(--accent3) 0%,var(--accent) 45%,#ff6b8a 100%)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;
+  height:18px;border-radius:50%;background:#fff;cursor:pointer;
+  box-shadow:0 0 0 calc(3px + var(--heat)*9px)
+    color-mix(in srgb,#ff6b8a calc(18% + var(--heat)*40%),transparent);
+  transition:box-shadow .25s}
+.val{min-width:42px;text-align:right;color:var(--accent);font-weight:600}
+
+button.go{
+  border:none;border-radius:10px;padding:11px 26px;cursor:pointer;font:inherit;
+  font-weight:700;color:#07070c;position:relative;overflow:hidden;
+  background:linear-gradient(95deg,var(--accent),var(--accent2));
+  transition:transform .18s,box-shadow .3s;
+  box-shadow:0 0 22px color-mix(in srgb,var(--accent) 34%,transparent)}
+button.go:hover{transform:translateY(-2px);
+  box-shadow:0 0 34px color-mix(in srgb,var(--accent) 55%,transparent)}
+button.go:active{transform:translateY(0) scale(.98)}
+button.go[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+button.stop{background:none;border:1px solid #ff6b8a;color:#ff6b8a;
+  border-radius:10px;padding:11px 20px;cursor:pointer;font:inherit}
+
+/* --- layout ---------------------------------------------------------------- */
+.grid{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+
+/* --- the story ------------------------------------------------------------- */
+#story{min-height:340px;white-space:pre-wrap;word-break:break-word;
+  font-size:16px;line-height:1.85;position:relative}
+#story .seed{color:var(--dim)}
+/* Every generated character is its own span so it can animate in on arrival.
+   --j is the jitter distance, scaled by temperature: the page gets visibly
+   more chaotic exactly when the sampling does. */
+#story span.ch{
+  display:inline;animation:pop .34s cubic-bezier(.2,1.5,.4,1) both;
+  text-shadow:0 0 calc(var(--heat)*11px)
+    color-mix(in srgb,var(--accent) calc(var(--heat)*70%),transparent);
+}
+@keyframes pop{
+  from{opacity:0;filter:blur(6px);transform:translateY(var(--j,5px)) scale(.86)}
+  to{opacity:1;filter:blur(0);transform:none}
+}
+#cursor{display:inline-block;width:9px;height:1.05em;vertical-align:-2px;
+  background:var(--accent);animation:blink 1s steps(2) infinite;
+  box-shadow:0 0 14px var(--accent)}
+@keyframes blink{50%{opacity:0}}
+body.busy #cursor{animation:blink .35s steps(2) infinite}
+
+/* --- the probability panel: the part that is not just decoration ----------- */
+.bars{display:grid;gap:7px}
+.bar{position:relative;display:grid;grid-template-columns:30px 1fr 52px;
+  gap:9px;align-items:center;font-size:12.5px}
+.bar .k{text-align:center;background:#08080f;border:1px solid var(--line);
+  border-radius:6px;padding:3px 0;color:var(--text);transition:all .25s}
+.bar .track{height:9px;background:#08080f;border-radius:99px;overflow:hidden}
+.bar .fill{height:100%;border-radius:99px;width:0;
+  background:linear-gradient(90deg,var(--accent3),var(--accent));
+  transition:width .13s linear}
+.bar .p{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
+/* The character the model actually sampled, not merely considered. */
+.bar.picked .k{background:var(--accent);color:#07070c;border-color:var(--accent);
+  transform:scale(1.12);box-shadow:0 0 16px var(--accent)}
+.bar.picked .fill{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+
+.stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;
+  font-size:11.5px;color:var(--dim);letter-spacing:.06em}
+.stats b{color:var(--accent3);font-variant-numeric:tabular-nums}
+.title{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:12px;display:flex;justify-content:space-between}
+
+/* Anyone who has asked their system not to animate things gets a still page. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  #field{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="field"></canvas>
+<div class="aurora a"></div><div class="aurora b"></div>
+
+<div class="wrap">
+  <header>
+    <h1 data-text="STORY GPT">STORY GPT</h1>
+    <div class="sub">819,659 parameters &middot; trained from scratch on CPU &middot;
+      <b id="ppl">perplexity 4.58</b></div>
+  </header>
+
+  <div class="panel controls">
+    <div class="row"><label>Genre</label><div class="pills" id="genres"></div></div>
+    <div class="row">
+      <label>Prompt</label>
+      <input type="text" id="prompt" placeholder="Once upon a time" autocomplete="off">
+    </div>
+    <div class="row">
+      <label>Temperature</label>
+      <input type="range" id="temp" min="0.2" max="1.6" step="0.05" value="0.8">
+      <span class="val" id="tempv">0.80</span>
+      <label style="margin-left:14px">Length</label>
+      <input type="range" id="len" min="100" max="1500" step="50" value="600">
+      <span class="val" id="lenv">600</span>
+    </div>
+    <div class="row">
+      <button class="go" id="go">GENERATE</button>
+      <button class="stop" id="stop" hidden>STOP</button>
+      <span class="sub" id="hint">temperature under 1 is safer and more repetitive; over 1 invents words</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="title"><span>Output</span><span id="genreLabel">fairytale</span></div>
+      <div id="story"><span id="cursor"></span></div>
+      <div class="stats">
+        <span>chars <b id="nchars">0</b></span>
+        <span>chars/sec <b id="rate">0</b></span>
+        <span>real words <b id="realpct">--</b></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="title"><span>Next character</span><span id="conf">--</span></div>
+      <div class="bars" id="bars"></div>
+      <div class="stats" style="margin-top:16px">
+        <span style="color:var(--dim);line-height:1.6">
+          What the model was choosing between at this position. The highlighted
+          one is what it sampled.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Genre themes. Changing these three custom properties re-colours the entire
+// page, because every rule above refers to them rather than to literal colours.
+// ---------------------------------------------------------------------------
+const THEMES = {
+  fairytale:{accent:"#ffc46b",accent2:"#ff8fb1",accent3:"#ffe9a8"},
+  fable    :{accent:"#5fe08a",accent2:"#9be86b",accent3:"#c8f5a0"},
+  mystery  :{accent:"#7cc4ff",accent2:"#c9a0ff",accent3:"#4de0c0"},
+};
+let genre = "fairytale", source = null, started = 0, count = 0;
+
+const $ = id => document.getElementById(id);
+const story = $("story"), cursor = $("cursor"), bars = $("bars");
+
+// --- build the six probability bars once, then only update their widths -----
+const rows = [];
+for (let i = 0; i < 6; i++) {
+  const row = document.createElement("div");
+  row.className = "bar";
+  row.innerHTML = `<div class="k">&nbsp;</div>
+    <div class="track"><div class="fill"></div></div><div class="p">--</div>`;
+  bars.appendChild(row);
+  rows.push({row, k:row.querySelector(".k"),
+             fill:row.querySelector(".fill"), p:row.querySelector(".p")});
+}
+
+function setGenre(name){
+  genre = name;
+  const t = THEMES[name];
+  for (const [k,v] of Object.entries(t))
+    document.documentElement.style.setProperty("--"+k, v);
+  $("genreLabel").textContent = name;
+  document.querySelectorAll(".pill").forEach(p =>
+    p.setAttribute("aria-pressed", String(p.dataset.g === name)));
+}
+
+// Genre buttons come from the server, so the page cannot disagree with the
+// model about which genres exist.
+fetch("/api/genres").then(r => r.json()).then(d => {
+  d.genres.forEach(g => {
+    const b = document.createElement("button");
+    b.className = "pill"; b.dataset.g = g; b.textContent = g;
+    b.setAttribute("aria-pressed", String(g === genre));
+    b.onclick = () => setGenre(g);
+    $("genres").appendChild(b);
+  });
+  setGenre(genre);
+});
+
+// --- sliders ----------------------------------------------------------------
+const temp = $("temp"), len = $("len");
+function syncTemp(){
+  const v = parseFloat(temp.value);
+  $("tempv").textContent = v.toFixed(2);
+  // heat: 0 at temperature 0.2, 1 at 1.6. Drives glow, jitter and particle
+  // speed, so the page's chaos tracks the sampling's chaos.
+  document.documentElement.style.setProperty("--heat",
+    ((v - 0.2) / 1.4).toFixed(3));
+  $("hint").textContent = v < 0.6
+    ? "low: almost every word real, but it repeats itself badly"
+    : v > 1.15 ? "high: inventive, and about half the words will not be words"
+    : "balanced: closest to the corpus";
+}
+temp.oninput = syncTemp; syncTemp();
+len.oninput = () => $("lenv").textContent = len.value;
+
+// --- generation -------------------------------------------------------------
+function stop(){
+  if (source) { source.close(); source = null; }
+  document.body.classList.remove("busy");
+  $("go").disabled = false; $("stop").hidden = true;
+}
+
+function generate(){
+  stop();
+  story.querySelectorAll("span.ch,span.seed").forEach(n => n.remove());
+  count = 0; started = performance.now();
+  $("nchars").textContent = "0"; $("rate").textContent = "0";
+  $("realpct").textContent = "--";
+  document.body.classList.add("busy");
+  $("go").disabled = true; $("stop").hidden = false;
+
+  const q = new URLSearchParams({
+    genre, prompt: $("prompt").value,
+    tokens: len.value, temperature: temp.value,
+  });
+  // EventSource is the browser's built-in Server-Sent Events client: it holds
+  // the connection open and fires onmessage for each "data:" block.
+  source = new EventSource("/api/generate?" + q);
+
+  source.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "prompt") {
+      if (m.text.trim()) {
+        const s = document.createElement("span");
+        s.className = "seed"; s.textContent = m.text;
+        story.insertBefore(s, cursor);
+      }
+      return;
+    }
+    if (m.type === "done") { finish(); return; }
+
+    // One span per character so each can animate in on arrival.
+    const s = document.createElement("span");
+    s.className = "ch"; s.textContent = m.c;
+    // Jitter scales with temperature: hotter sampling, livelier arrival.
+    const heat = parseFloat(getComputedStyle(document.documentElement)
+                  .getPropertyValue("--heat")) || 0;
+    s.style.setProperty("--j", (3 + heat * 16).toFixed(1) + "px");
+    story.insertBefore(s, cursor);
+    count++;
+
+    // Probability bars.
+    m.top.forEach((pair, i) => {
+      const [ch, p] = pair, r = rows[i];
+      r.k.textContent = ch === "\n" ? "\\n" : ch === " " ? "␣" : ch;
+      r.fill.style.width = (p * 100).toFixed(1) + "%";
+      r.p.textContent = (p * 100).toFixed(1) + "%";
+      r.row.classList.toggle("picked", ch === m.c);
+    });
+    $("conf").textContent = (m.top[0][1] * 100).toFixed(0) + "% top";
+
+    if (count % 8 === 0) {
+      $("nchars").textContent = count;
+      $("rate").textContent =
+        (count / ((performance.now() - started) / 1000)).toFixed(0);
+      cursor.scrollIntoView({block:"nearest"});
+    }
+  };
+  source.onerror = () => finish();
+}
+
+function finish(){
+  stop();
+  $("nchars").textContent = count;
+  $("rate").textContent = (count / ((performance.now()-started)/1000)).toFixed(0);
+  // A rough echo of the measurement in DESIGN.md: how many produced words are
+  // long enough and vowel-bearing enough to look like English. Not the real
+  // corpus check, which needs the corpus - just a live sanity signal.
+  const words = story.textContent.trim().split(/\s+/).filter(Boolean);
+  const plausible = words.filter(w => /[aeiou]/i.test(w) && w.length > 1).length;
+  if (words.length) $("realpct").textContent =
+    Math.round(100 * plausible / words.length) + "%";
+}
+
+$("go").onclick = generate;
+$("stop").onclick = stop;
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter") generate(); });
+
+// ---------------------------------------------------------------------------
+// Background particle field. Points drift and link to near neighbours - a
+// loose nod to the attention pattern, and cheap: ~55 points, one pass.
+// ---------------------------------------------------------------------------
+const cv = $("field"), cx = cv.getContext("2d");
+let pts = [];
+function resize(){
+  cv.width = innerWidth; cv.height = innerHeight;
+  pts = Array.from({length:55}, () => ({
+    x:Math.random()*cv.width, y:Math.random()*cv.height,
+    vx:(Math.random()-.5)*.35, vy:(Math.random()-.5)*.35,
+  }));
+}
+addEventListener("resize", resize); resize();
+
+function accent(){
+  return getComputedStyle(document.documentElement)
+           .getPropertyValue("--accent").trim() || "#7cc4ff";
+}
+(function loop(){
+  const heat = parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue("--heat")) || 0;
+  const speed = 0.5 + heat * 1.9;     // hotter sampling, faster drift
+  cx.clearRect(0,0,cv.width,cv.height);
+  const col = accent();
+  for (const p of pts) {
+    p.x += p.vx*speed; p.y += p.vy*speed;
+    if (p.x < 0 || p.x > cv.width)  p.vx *= -1;
+    if (p.y < 0 || p.y > cv.height) p.vy *= -1;
+  }
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i+1; j < pts.length; j++) {
+      const dx = pts[i].x-pts[j].x, dy = pts[i].y-pts[j].y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 < 21000) {
+        cx.globalAlpha = (1 - d2/21000) * 0.22;
+        cx.strokeStyle = col; cx.lineWidth = 1;
+        cx.beginPath(); cx.moveTo(pts[i].x,pts[i].y);
+        cx.lineTo(pts[j].x,pts[j].y); cx.stroke();
+      }
+    }
+    cx.globalAlpha = .55; cx.fillStyle = col;
+    cx.beginPath(); cx.arc(pts[i].x,pts[i].y,1.5,0,7); cx.fill();
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -219,10 +219,20 @@ class GPT(nn.Module):
         return logits, loss
 
     @torch.no_grad()   # generation is not training: build no gradient graph
-    def generate(self, idx: torch.Tensor, genre: torch.Tensor,
-                 max_new_tokens: int, temperature: float = 1.0,
-                 top_k: int | None = None) -> torch.Tensor:
-        """Extend idx by max_new_tokens characters, sampling one at a time."""
+    def stream(self, idx: torch.Tensor, genre: torch.Tensor,
+               max_new_tokens: int, temperature: float = 1.0,
+               top_k: int | None = None):
+        """Yield (next_id, probabilities) one character at a time.
+
+        A generator: `yield` hands a value back and pauses, resuming here when
+        the caller asks for the next one. generate() below collects from it,
+        and the web server consumes it live - one sampling implementation with
+        two ways to read it, so the two cannot drift apart.
+
+        The probabilities are yielded as well because the browser draws them:
+        seeing which characters the model considered is the whole point of
+        watching it generate rather than reading the finished text.
+        """
         self.eval()    # disables dropout
         for _ in range(max_new_tokens):
             # The position embedding table has only block_size rows, so the
@@ -238,8 +248,18 @@ class GPT(nn.Module):
                 logits[logits < v[:, [-1]]] = float("-inf")
             probs = F.softmax(logits, dim=-1)
             # Sample rather than take the argmax, which loops on a few chars.
-            idx = torch.cat((idx, torch.multinomial(probs, num_samples=1)), dim=1)
-        return idx
+            next_id = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat((idx, next_id), dim=1)
+            yield next_id.item(), probs[0]
+
+    def generate(self, idx: torch.Tensor, genre: torch.Tensor,
+                 max_new_tokens: int, temperature: float = 1.0,
+                 top_k: int | None = None) -> torch.Tensor:
+        """Extend idx by max_new_tokens characters. Collects from stream()."""
+        ids = [i for i, _ in self.stream(idx, genre, max_new_tokens,
+                                         temperature, top_k)]
+        new = torch.tensor([ids], dtype=torch.long, device=idx.device)
+        return torch.cat((idx, new), dim=1)
 
 
 if __name__ == "__main__":
